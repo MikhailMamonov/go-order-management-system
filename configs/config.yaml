@@ -1,0 +1,22 @@
+server:
+  port: 8081
+  host: localhost
+
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  dbname: order_db
+  sslmode: disable
+
+kafka:
+  brokers:
+    - localhost:9092
+  topics:
+    orders: orders
+    inventory: inventory
+    payments: payments
+
+log:
+  level: info
