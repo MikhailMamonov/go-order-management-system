@@ -35,3 +35,41 @@ type CreateOrderRequest struct {
 	UserID uuid.UUID   `json:"user_id" validate:"required"`
 	Items  []OrderItem `json:"items" validate:"required,min=1"`
 }
+
+// ============ Kafka Events для Saga ============
+
+type OrderCreatedEvent struct {
+	OrderID     uuid.UUID   `json:"order_id"`
+	UserID      uuid.UUID   `json:"user_id"`
+	Items       []OrderItem `json:"items"`
+	TotalAmount float64     `json:"total_amount"`
+}
+
+type OrderPendingEvent struct {
+	OrderID     uuid.UUID `json:"order_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	TotalAmount float64   `json:"total_amount"`
+}
+
+type OrderCancelledEvent struct {
+	OrderID uuid.UUID `json:"order_id"`
+	Reason  string    `json:"reason"`
+}
+
+// События от других сервисов (их будет принимать Order Service)
+
+type InventoryReservedEvent struct {
+	OrderID     uuid.UUID `json:"order_id"`
+	UserID      uuid.UUID `json:"user_id"`
+	TotalAmount float64   `json:"total_amount"`
+}
+
+type InventoryFailedEvent struct {
+	OrderID uuid.UUID `json:"order_id"`
+	Reason  string    `json:"reason"`
+}
+
+type PaymentProcessedEvent struct {
+	OrderID     uuid.UUID `json:"order_id"`
+	Transaction string    `json:"transaction"`
+}
