@@ -1,0 +1,21 @@
+server:
+  port: "8082"
+  host: "localhost"
+
+database:
+  host: "localhost"
+  port: "5433"         
+  user: "postgres"
+  password: "postgres"
+  dbname: "inventory_db" 
+  sslmode: "disable"
+
+kafka:
+  brokers:
+    - "localhost:9092"
+  topics:
+    orders: "orders"
+    inventory: "inventory"
+
+log:
+  level: "debug"
