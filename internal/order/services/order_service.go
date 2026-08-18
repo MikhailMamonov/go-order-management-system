@@ -16,14 +16,14 @@ import (
 
 type OrderService struct {
 	repo          repository.OrderRepository
-	kafkaProducer kafka.Writer
+	kafkaProducer *kafka.Writer
 	ordersTopic   string
 	logger        *zap.SugaredLogger
 }
 
 func NewOrderService(
 	repo repository.OrderRepository,
-	kafkaProducer kafka.Writer,
+	kafkaProducer *kafka.Writer,
 	ordersTopic string,
 	logger *zap.SugaredLogger,
 ) *OrderService {
@@ -111,6 +111,47 @@ func (s *OrderService) CancelOrder(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (s *OrderService) HandleInventoryReserved(ctx context.Context, event models.InventoryReservedEvent) error {
+	s.logger.Infof("🔄 Handling InventoryReserved for order %s", event.OrderID)
+
+	if err := s.repo.UpdateStatus(ctx, event.OrderID, models.StatusReserved); err != nil {
+		s.logger.Errorf("❌ Failed to update status to RESERVED: %v", err)
+		return fmt.Errorf("update status: %w", err)
+	}
+
+	s.logger.Infof("Order status changed to RESERVED: %s", event.OrderID)
+
+	paymentEvent := models.OrderPendingEvent{
+		OrderID:     event.OrderID,
+		UserID:      event.UserID,
+		TotalAmount: event.TotalAmount,
+	}
+
+	if err := s.publishEvent(ctx, "OrderPending", paymentEvent); err != nil {
+		s.logger.Errorf(" Failed to publish OrderPending: %v", err)
+		// Не критично — статус уже обновлён
+	}
+
+	return nil
+}
+
+func (s *OrderService) HandleInventoryFailed(ctx context.Context, event models.InventoryFailedEvent) error {
+	s.logger.Warnf("Handling InventoryFailed for order %s: %s", event.OrderID, event.Reason)
+
+	// Отменяем заказ
+	if err := s.repo.UpdateStatus(ctx, event.OrderID, models.StatusCancelled); err != nil {
+		return fmt.Errorf("update status: %w", err)
+	}
+
+	s.logger.Infof("Order cancelled due to inventory failure: %s", event.OrderID)
+	return nil
+}
+
+func (s *OrderService) HandlePaymentProcessed(ctx context.Context, event models.PaymentProcessedEvent) error {
+	s.logger.Infof("Handling PaymentProcessed for order %s", event.OrderID)
+	return s.repo.UpdateStatus(ctx, event.OrderID, models.StatusPaid)
+}
+
 func (s *OrderService) publishEvent(ctx context.Context, eventType string, event interface{}) error {
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
@@ -131,6 +172,6 @@ func (s *OrderService) publishEvent(ctx context.Context, eventType string, event
 		return fmt.Errorf("write message to kafka: %w", err)
 	}
 
-	s.logger.Info("Published event %s", eventType)
+	s.logger.Infof("Published event %s", eventType)
 	return nil
 }
