@@ -24,13 +24,14 @@ func NewOrderEventsConsumer(
 	inventoryService *services.InventoryService,
 	logger *zap.SugaredLogger,
 ) *OrderEventsConsumer {
+	uniqueGroupID := fmt.Sprintf("inventory-svc-%d", time.Now().Unix())
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     brokers,
 		Topic:       "orders",
-		GroupID:     "inventory-service-v2",
-		MinBytes:    10e3,
+		GroupID:     uniqueGroupID,
+		MinBytes:    1,
 		MaxBytes:    10e6,
-		MaxWait:     100 * 1000,
+		MaxWait:     100 * time.Millisecond,
 		StartOffset: kafka.FirstOffset,
 	})
 

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -86,7 +87,7 @@ func (s *InventoryService) HandleOrderCreated(ctx context.Context, event models.
 		TotalAmount: event.TotalAmount,
 	}
 
-	if err := s.publishEvent(ctx, "InventoryReservedEvent", succesEvent); err != nil {
+	if err := s.publishEvent(ctx, "InventoryReserved", succesEvent); err != nil {
 		s.logger.Errorf("Failed to publish InventoryReserved event: %v", err)
 		_ = s.repo.Release(ctx, reservations)
 		return err
@@ -109,7 +110,7 @@ func (s *InventoryService) handleFailure(ctx context.Context, orderID uuid.UUID,
 		Reason:  reason,
 	}
 
-	if err := s.publishEvent(ctx, "InventoryFailedEvent", failedEvent); err != nil {
+	if err := s.publishEvent(ctx, "InventoryFailed", failedEvent); err != nil {
 		s.logger.Errorf("Failed to publish InventoryFailed event: %v", err)
 	}
 
@@ -117,8 +118,37 @@ func (s *InventoryService) handleFailure(ctx context.Context, orderID uuid.UUID,
 }
 
 func (s *InventoryService) publishEvent(ctx context.Context, eventType string, event interface{}) error {
-	// Здесь будет реализация отправки в Kafka
-	// Аналогично Order Service
+	if s.kafkaProducer == nil {
+		s.logger.Errorf("❌ Kafka producer is nil! Event %s will NOT be sent", eventType)
+		return fmt.Errorf("kafka producer is nil")
+	}
+
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		s.logger.Errorf("❌ Failed to marshal event: %v", err)
+		return fmt.Errorf("marshal event: %w", err)
+	}
+
+	s.logger.Infof("Publishing event to Kafka:")
+	s.logger.Infof("   Type: %s", eventType)
+	s.logger.Infof("   Topic: %s", s.inventoryTopic)
+	s.logger.Infof("   Payload: %s", string(eventBytes))
 	s.logger.Infof("Publishing event: %s", eventType)
+
+	msg := kafka.Message{
+		Topic: s.inventoryTopic,
+		Key:   []byte(eventType),
+		Value: eventBytes,
+		Time:  time.Now(),
+	}
+
+	err = s.kafkaProducer.WriteMessages(ctx, msg)
+
+	if err != nil {
+		s.logger.Errorf("❌ FAILED to publish to Kafka: %v", err)
+		return fmt.Errorf("publish event: %w", err)
+	}
+
+	s.logger.Infof("✅ Successfully published event %s to topic %s", eventType, s.inventoryTopic)
 	return nil
 }

@@ -23,10 +23,10 @@ func NewInventoryConsumer(brokers []string, orderService *services.OrderService,
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     brokers,
 		Topic:       "inventory",
-		GroupID:     "order-service-group-v2",
-		MinBytes:    10e3,
+		GroupID:     "order-service-group-v3",
+		MinBytes:    1,
 		MaxBytes:    10e6,
-		MaxWait:     500 * time.Millisecond,
+		MaxWait:     100 * time.Millisecond,
 		StartOffset: kafka.FirstOffset,
 	})
 	return &InventoryEventsConsumer{
