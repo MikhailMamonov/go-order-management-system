@@ -14,12 +14,11 @@ import (
 	"github.com/MikhailMamonov/go-order-management-system/internal/payment/repository"
 )
 
-
 type PaymentService struct {
-	repo repository.PaymentRepository
-	topic string
+	repo            repository.PaymentRepository
+	topic           string
 	paymentProducer *kafka.Writer
-	logger * zap.SugaredLogger
+	logger          *zap.SugaredLogger
 }
 
 func NewPaymentService(
@@ -27,35 +26,35 @@ func NewPaymentService(
 	kafkaProducer *kafka.Writer,
 	paymentTopic string,
 	logger *zap.SugaredLogger,
-) *PaymentService{
+) *PaymentService {
 	return &PaymentService{
-		repo: repo,
-		topic: paymentTopic,
+		repo:            repo,
+		topic:           paymentTopic,
 		paymentProducer: kafkaProducer,
-		logger: logger,
+		logger:          logger,
 	}
 }
 
 func (s *PaymentService) HandleOrderPending(ctx context.Context, event models.OrderPendingEvent) error {
-	s.logger.Infof("Processing OrderPending event: order_id=%s, amount=%.2f", event.OrderID, event.TotalAmount) 
+	s.logger.Infof("Processing OrderPending event: order_id=%s, amount=%.2f", event.OrderID, event.TotalAmount)
 
-	payment:= models.Payment{
-		ID: uuid.New(),
-		OrderID: event.OrderID,
-		UserID: event.UserID,
-		Amount: event.TotalAmount,
-		Status: models.StatusPending,
+	payment := models.Payment{
+		ID:          uuid.New(),
+		OrderID:     event.OrderID,
+		UserID:      event.UserID,
+		Amount:      event.TotalAmount,
+		Status:      models.StatusPending,
 		Transaction: "",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
-	if err:= s.repo.Create(ctx, &payment); err!=nil{
+	if err := s.repo.Create(ctx, &payment); err != nil {
 		return s.handleFailure(ctx, event.OrderID, fmt.Sprintf("failed to create payment: %v", err))
 	}
 
 	// Имитация обработки платежа (в реальности здесь был бы вызов платёжного шлюза)
-	transactionID := s.processPayment(payment)
+	transactionID := s.processPayment(&payment)
 
 	if transactionID == "" {
 		// Платёж не прошёл
@@ -67,12 +66,11 @@ func (s *PaymentService) HandleOrderPending(ctx context.Context, event models.Or
 		s.logger.Errorf("Failed to update payment status: %v", err)
 	}
 
-	succesEvent:= models.OrderPaymentProcessed{
-		OrderID: event.OrderID,
-		Transaction: transactionID
-	}
+	succesEvent := models.OrderPaymentProcessed{
+		OrderID:     event.OrderID,
+		Transaction: transactionID}
 
-	if err := s.publishEvent(ctx, "PaymentProcessed", successEvent); err != nil {
+	if err := s.publishEvent(ctx, "PaymentProcessed", succesEvent); err != nil {
 		s.logger.Errorf("Failed to publish PaymentProcessed event: %v", err)
 		return err
 	}
@@ -84,20 +82,20 @@ func (s *PaymentService) HandleOrderPending(ctx context.Context, event models.Or
 func (s *PaymentService) processPayment(payment *models.Payment) string {
 	// В реальности здесь был бы вызов платёжного шлюза (Stripe, YooKassa и т.д.)
 	transactionID := fmt.Sprintf("TXN-%s", uuid.New().String()[:8])
-	
-	s.logger.Infof("Processing payment: order=%s, amount=%.2f, transaction=%s", 
+
+	s.logger.Infof("Processing payment: order=%s, amount=%.2f, transaction=%s",
 		payment.OrderID, payment.Amount, transactionID)
-	
+
 	// Имитация задержки обработки
 	time.Sleep(100 * time.Millisecond)
-	
+
 	return transactionID
 }
 
 func (s *PaymentService) handleFailure(ctx context.Context, orderID uuid.UUID, reason string) error {
 	s.logger.Warnf("Payment failed for order %s: %s", orderID, reason)
 
-	failedEvent := models.PaymentFailedEvent{
+	failedEvent := models.OrderPaymentFailed{
 		OrderID: orderID,
 		Reason:  reason,
 	}
@@ -109,13 +107,13 @@ func (s *PaymentService) handleFailure(ctx context.Context, orderID uuid.UUID, r
 	return fmt.Errorf(reason)
 }
 
-func (s *PaymentService) publishEvent(ctx context.Context, eventType string,  event interface{}) error {
-	if s.kafkaProducer == nil {
+func (s *PaymentService) publishEvent(ctx context.Context, eventType string, event interface{}) error {
+	if s.paymentProducer == nil {
 		s.logger.Errorf("Kafka producer is nil! Event %s will NOT be sent", eventType)
 		return fmt.Errorf("Kafka Producer is nil")
 	}
 
-	eventBytes,err:=json.Marshal(event)
+	eventBytes, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
@@ -124,21 +122,21 @@ func (s *PaymentService) publishEvent(ctx context.Context, eventType string,  ev
 	s.logger.Infof("   Type: %s", eventType)
 	s.logger.Infof("   Topic: %s", s.topic)
 	s.logger.Infof("   Payload: %s", string(eventBytes))
-	
-	msg:= kafka.Message{
+
+	msg := kafka.Message{
 		Topic: s.topic,
-		Key: []byte(eventType) ,
+		Key:   []byte(eventType),
 		Value: eventBytes,
-		Time: time.Now(),
+		Time:  time.Now(),
 	}
 
-	err= s.paymentProducer.WriteMessages(ctx, msg)
+	err = s.paymentProducer.WriteMessages(ctx, msg)
 
 	if err != nil {
 		s.logger.Errorf("❌ FAILED to publish to Kafka: %v", err)
 		return fmt.Errorf("publish event: %w", err)
 	}
 
-	s.logger.Infof("✅ Successfully published event %s to topic %s", eventType, s.paymentTopic)
+	s.logger.Infof("✅ Successfully published event %s to topic %s", eventType, s.topic)
 	return nil
 }

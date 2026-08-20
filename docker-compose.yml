@@ -40,6 +40,26 @@ services:
       retries: 5
     networks:
       - oms-network
+  
+  postgres-payment:
+    image: postgres:15-alpine
+    container_name: postgres-payment
+    environment:
+      POSTGRES_DB: payment_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_payment_data:/var/lib/postgresql/data
+      - ./migrations/003_create_payments_table.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - oms-network
 
    # Redpanda (Kafka-совместимый)
   redpanda:
@@ -82,6 +102,7 @@ services:
 volumes:
   postgres_order_data:
   postgres_inventory_data:
+  postgres_payment_data: 
 
 networks:
   oms-network:

@@ -1,0 +1,21 @@
+server:
+  port: "8083"
+  host: "localhost"
+
+database:
+  host: "localhost"
+  port: "5434"
+  user: "postgres"
+  password: "postgres"
+  dbname: "payment_db"
+  sslmode: "disable"
+
+kafka:
+  brokers:
+    - "localhost:9092"
+  topics:
+    orders: "orders"
+    payments: "orders"
+
+log:
+  level: "debug"

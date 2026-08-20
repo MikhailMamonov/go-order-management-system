@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -26,39 +27,36 @@ func NewPaymentRepository(db *sqlx.DB) PaymentRepository {
 
 func (r *postgresPaymentRepository) Create(ctx context.Context, payment *models.Payment) error {
 	query := `
-		INSERT INTO payments(id, order_id, user_id,amount, status, transaction, created_at, updated_at)
-		VALUES ($1,$2, $3,$4, $5, $6, $7, $8)
+		INSERT INTO payments (id, order_id, user_id, amount, status, transaction, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
-
-	_,err := r.db.ExecContext(ctx, query,
+	_, err := r.db.ExecContext(ctx, query,
 		payment.ID,
-		payment.OrderID, 
+		payment.OrderID,
 		payment.UserID,
-		payment.Amount, 
-		payment.Transaction, 
-		payment.CreatedAt, 
-		payment.UpdatedAt)
-
-	if err!=nil{
+		payment.Amount,
+		payment.Status,
+		payment.Transaction,
+		payment.CreatedAt,
+		payment.UpdatedAt,
+	)
+	if err != nil {
 		return fmt.Errorf("insert payment: %w", err)
 	}
-	
 	return nil
 }
-
 
 func (r *postgresPaymentRepository) GetByOrderID(ctx context.Context, id uuid.UUID) (*models.Payment, error) {
 	var payment models.Payment
 
-	query:= `
+	query := `
 		Select id, order_id, user_id,amount, status, transaction, created_at, updated_at 
 		from payments
 		where order_id= $1
 	`
 
 	err := r.db.QueryRowxContext(ctx, query, id).Scan(
-		&payment.ID, &payment.OrderID, &payment.UserID, &payment.Amount, &payment.Status, &payment.Transaction, &payment.CreatedAt, &payment.UpdatedAt
-	)
+		&payment.ID, &payment.OrderID, &payment.UserID, &payment.Amount, &payment.Status, &payment.Transaction, &payment.CreatedAt, &payment.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("payment not found")
@@ -71,13 +69,13 @@ func (r *postgresPaymentRepository) GetByOrderID(ctx context.Context, id uuid.UU
 }
 
 func (r *postgresPaymentRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status models.PaymentStatus, transaction string) error {
-	query:= `
+	query := `
 		Update payments 
 		SET status = $1, transaction = $2, updated_at = $3
 		where id= $4
 	`
 
-	_,err:= r.db.ExecContext(ctx, query, status, transaction, time.Now(), id)
+	_, err := r.db.ExecContext(ctx, query, status, transaction, time.Now(), id)
 
 	return err
 }

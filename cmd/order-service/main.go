@@ -66,6 +66,7 @@ func main() {
 		sugar,
 	)
 
+	paymentConsumer := consumers.NewPaymentEventsConsumer(cfg.Kafka.Brokers, orderService, sugar)
 	// Настройка роутера
 	router := gin.Default()
 	orderHandler.RegisterRoutes(router)
@@ -86,6 +87,13 @@ func main() {
 	go func() {
 		if err := inventoryConsumer.Start(ctx); err != nil {
 			sugar.Errorf("Inventory consumer error: %v", err)
+		}
+	}()
+
+	go func() {
+		sugar.Info("Starting Payment events consumer...")
+		if err := paymentConsumer.Start(ctx); err != nil {
+			sugar.Errorf("Payment consumer error: %v", err)
 		}
 	}()
 
