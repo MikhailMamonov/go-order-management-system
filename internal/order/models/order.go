@@ -73,3 +73,8 @@ type PaymentProcessedEvent struct {
 	OrderID     uuid.UUID `json:"order_id"`
 	Transaction string    `json:"transaction"`
 }
+
+type PaymentFailedEvent struct {
+	OrderID uuid.UUID `json:"order_id"`
+	Reason  string    `json:"reason"`
+}

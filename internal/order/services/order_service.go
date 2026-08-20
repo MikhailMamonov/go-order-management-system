@@ -152,6 +152,11 @@ func (s *OrderService) HandlePaymentProcessed(ctx context.Context, event models.
 	return s.repo.UpdateStatus(ctx, event.OrderID, models.StatusPaid)
 }
 
+func (s *OrderService) HandlePaymentFailed(ctx context.Context, event models.PaymentFailedEvent) error {
+	s.logger.Warnf("⚠️ Handling PaymentFailed for order %s: %s", event.OrderID, event.Reason)
+	return s.repo.UpdateStatus(ctx, event.OrderID, models.StatusCancelled)
+}
+
 func (s *OrderService) publishEvent(ctx context.Context, eventType string, event interface{}) error {
 	eventBytes, err := json.Marshal(event)
 	if err != nil {

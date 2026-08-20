@@ -18,6 +18,7 @@ import (
 	"github.com/MikhailMamonov/go-order-management-system/internal/inventory/repository"
 	"github.com/MikhailMamonov/go-order-management-system/internal/inventory/services"
 	"github.com/MikhailMamonov/go-order-management-system/pkg/database"
+	"github.com/MikhailMamonov/go-order-management-system/pkg/kafka"
 )
 
 func main() {
@@ -48,8 +49,14 @@ func main() {
 
 	defer db.Close()
 
+	kafkaProducer, err := kafka.NewProducer(viper.GetStringSlice("kafka.brokers"))
+	if err != nil {
+		sugar.Fatalf("Failed to create Kafka producer: %v", err)
+	}
+	defer kafkaProducer.Close()
+
 	inventoryRepo := repository.NewInventoryRepository(db)
-	inventoryService := services.NewInventoryService(inventoryRepo, nil, viper.GetString("kafka.topics.inventory"), sugar)
+	inventoryService := services.NewInventoryService(inventoryRepo, kafkaProducer, viper.GetString("kafka.topics.inventory"), sugar)
 	inventoryHandler := handlers.NewInventoryHandler(inventoryService)
 
 	router := gin.Default()
