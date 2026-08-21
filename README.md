@@ -1,66 +1,60 @@
 # 🛒 Order Management System (OMS)
 
-**Микросервисная система управления заказами на Go** с распределёнными транзакциями (Saga), event-driven архитектурой и высоконагруженными интеграциями.
+**Микросервисная система управления заказами на Go** с gRPC для межсервисного взаимодействия, Kafka для событийной архитектуры и PostgreSQL для хранения данных.
 
-> 💡 **Примечание:** Этот проект — переписанная на Go версия моей Java-системы ([оригинал](https://github.com/MikhailMamonov/order-management-system)). Цель — глубокое изучение экосистемы Go через решение реальных инженерных задач.
+> 💡 **Примечание:** Этот проект демонстрирует production-ready микросервисную архитектуру с API Gateway, gRPC коммуникацией между сервисами и event-driven подходом через Kafka.
+
+---
 
 ## 🎯 О проекте
 
-OMS решает классическую проблему e-commerce: как гарантировать консистентность данных при создании заказа, когда нужно:
-1. Проверить наличие товара (Inventory Service)
-2. Зарезервировать остатки (Inventory Service)
-3. Обработать платёж (Payment Service)
-4. Отправить уведомление клиенту (Notification Service)
+OMS решает классическую проблему e-commerce: как гарантировать консистентность данных при создании заказа в распределённой системе.
 
-Всё это происходит асинхронно, с возможными отказами сервисов и откатами транзакций.
+**Ключевые особенности:**
+- 🏗 **Микросервисная архитектура** с чётким разделением ответственности
+- 🔌 **gRPC** для быстрого и типобезопасного межсервисного взаимодействия
+- 📨 **Kafka** для асинхронной коммуникации и Saga pattern
+- 🗄 **PostgreSQL** для надёжного хранения данных
+- 🚪 **API Gateway** как единая точка входа для внешних клиентов
 
 ---
 
 ## 🏗 Архитектура
 
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Client (Postman/cURL)                    │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-                  ┌─────────────────────┐
-                  │  API Gateway (Nginx) │
-                  │      Port: 80       │
-                  └──────────┬──────────┘
-                             │
-            ┌────────────────┼────────────────┐
-            │                │                │
-            ▼                ▼                ▼
-     ┌────────────┐   ┌──────────────┐  ┌────────────────┐
-     │   Order    │   │  Inventory   │  │  Notification  │
-     │  Service   │   │   Service    │  │    Service     │
-     │ (Port 8081)│   │ (Port 8082)  │  │  (Port 8083)   │
-     └──────┬─────┘   └──────┬───────┘  └────────┬───────┘
-            │                │                   │
-            │                ▼                   │
-            │         ┌────────────┐             │
-            │         │   Redis    │             │
-            │         │ (Port 6379)│             │
-            │         └────────────┘             │
-            │                                    │
-            ▼                                    ▼
-┌───────────────────────────────────────────────────────────┐
-│              Apache Kafka (Redpanda)                      │
-│                    Port: 9092                             │
-│  Topics: order.created, inventory.reserved,               │
-│          payment.processed, order.completed               │
-└───────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-          ┌────────────────────────────────┐
-          │   PostgreSQL (3 databases)     │
-          │          Port: 5432            │
-          │  ─ order_db                    │
-          │  ─ inventory_db                │
-          │  ─ notification_db             │
-          └────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                    🚪 API GATEWAY (порт 8080)                       │
+│              Единственная точка входа для клиентов                  │
+│              HTTP/REST → gRPC конвертация                           │
+│              JWT аутентификация, Rate limiting                      │
+└──────────────┬──────────────┬──────────────┬────────────────────────┘
+               │ gRPC         │ gRPC         │ gRPC
+               ▼              ▼              ▼
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│ Order        │   │ Inventory    │   │ Payment      │
+│ Service      │   │ Service      │   │ Service      │
+│              │   │              │   │              │
+│ Port: 50051  │   │ Port: 50052  │   │ Port: 50053  │
+└──────┬───────┘   └──────┬───────┘   └──────┬───────┘
+       │                  │                  │
+       └──────────────────┴──────────────────┘
+                    Apache Kafka
+              (события, Saga pattern)
+
 ```
+
+### Почему gRPC вместо REST для межсервисного общения?
+
+| Критерий | REST (HTTP/1.1 + JSON) | gRPC (HTTP/2 + Protobuf) |
+|----------|------------------------|--------------------------|
+| **Скорость** | ~5ms | ~0.5ms (в 10 раз быстрее) |
+| **Размер payload** | ~200 байт | ~50 байт (в 4 раза меньше) |
+| **Типобезопасность** | ❌ Runtime ошибки | ✅ Compile-time проверки |
+| **Мультиплексирование** | ❌ 1 запрос на соединение | ✅ Множество запросов на 1 TCP |
+| **Контракты** | ❌ OpenAPI (опционально) | ✅ .proto (обязательно, codegen) |
+
+---
 
 ### 🔄 Паттерн Saga (Choreography)
 
@@ -85,6 +79,8 @@ OMS решает классическую проблему e-commerce: как г
        │                        │                        │
 ```
 
+
+
 Если на любом этапе происходит ошибка, система запускает **компенсирующие транзакции** (отмена резерва, возврат средств).
 
 ---
@@ -94,15 +90,14 @@ OMS решает классическую проблему e-commerce: как г
 | Категория | Технология | Зачем используем |
 |-----------|-----------|------------------|
 | **Язык** | Go 1.21 | Основной язык разработки |
-| **Веб-фреймворк** | [Gin](https://github.com/gin-gonic/gin) | Быстрый HTTP-роутер для REST API |
-| **gRPC** | [gRPC-Go](https://grpc.io/docs/languages/go/) | Межсервисное взаимодействие (синхронное) |
+| **gRPC** | gRPC + Protobuf | Межсервисное взаимодействие |
+| **API Gateway** | Gin | HTTP → gRPC конвертация, JWT, rate limiting |
 | **База данных** | PostgreSQL 15 | Хранение бизнес-данных |
-| **Кэширование** | Redis | Кэш остатков товаров на складе |
-| **Брокер сообщений** | Kafka (Redpanda) | Асинхронная коммуникация между сервисами |
-| **Миграции** | [golang-migrate](https://github.com/golang-migrate/migrate) | Управление схемой БД |
-| **Конфигурация** | [Viper](https://github.com/spf13/viper) | Работа с конфигами (YAML, ENV) |
-| **Логирование** | [Zap](https://github.com/uber-go/zap) | Структурированные логи |
-| **Контейнеризация** | Docker, Docker Compose | Локальное развёртывание всей инфраструктуры |
+| **Брокер сообщений** | Apache Kafka (Redpanda) | Асинхронная коммуникация, Saga |
+| **Миграции** | golang-migrate | Управление схемой БД |
+| **Конфигурация** | Viper | Работа с конфигами (YAML, ENV) |
+| **Логирование** | Zap | Структурированные JSON логи |
+| **Контейнеризация** | Docker, Docker Compose | Локальное развёртывание |
 
 ---
 
@@ -110,41 +105,123 @@ OMS решает классическую проблему e-commerce: как г
 
 ```
 go-order-management-system/
+├── api/                          # Protobuf контракты
+│   ├── inventory/v1/
+│   │   ├── inventory.proto       # gRPC контракт для Inventory Service
+│   │   ├── inventory.pb.go       # Сгенерированный код (messages)
+│   │   └── inventory_grpc.pb.go  # Сгенерированный код (services)
+│   └── order/v1/
+│       └── order.proto
 ├── cmd/                          # Entry points для каждого сервиса
+│   ├── api-gateway/
+│   │   └── main.go               # API Gateway (HTTP сервер)
 │   ├── order-service/
+│   │   └── main.go               # Order Service (gRPC сервер)
 │   ├── inventory-service/
-│   └── notification-service/
-├── internal/                     # Приватная логика (не экспортируется)
+│   │   └── main.go               # Inventory Service (gRPC сервер)
+│   └── payment-service/
+│       └── main.go
+├── internal/                     # Приватная логика
+│   ├── gateway/
+│   │   ├── handlers/             # HTTP handlers для Gateway
+│   │   └── middleware/           # JWT, CORS, Rate limiting
 │   ├── order/
-│   │   ├── handler/              # HTTP/gRPC handlers
+│   │   ├── client/               # gRPC клиенты к другим сервисам
+│   │   ├── grpc/                 # gRPC сервер (адаптер)
 │   │   ├── service/              # Бизнес-логика
 │   │   ├── repository/           # Работа с БД
-│   │   └── model/                # Доменные модели
+│   │   └── models/               # Доменные модели
 │   ├── inventory/
-│   └── notification/
+│   │   ├── grpc/                 # gRPC сервер
+│   │   ├── service/              # Бизнес-логика
+│   │   ├── repository/           # Работа с БД
+│   │   └── consumers/            # Kafka consumers
+│   └── payment/
 ├── pkg/                          # Переиспользуемые пакеты
+│   ├── database/                 # PostgreSQL подключение
 │   ├── kafka/                    # Kafka producer/consumer
-│   ├── redis/                    # Redis client wrapper
-│   ├── postgres/                 # PostgreSQL connection pool
 │   └── grpc/                     # gRPC utilities
 ├── migrations/                   # SQL-миграции для каждой БД
-│   ├── order_db/
-│   ├── inventory_db/
-│   └── notification_db/
 ├── configs/                      # Конфигурационные файлы (YAML)
-├── docker-compose.yml            # Инфраструктура (Postgres, Redis, Kafka)
-├── Dockerfile                    # Сборка Go-сервисов
-└── Makefile                      # Автоматизация рутинных задач
+├── docker-compose.yml            # Инфраструктура
+└── Makefile                      # Автоматизация задач
 ```
 
-### 🎯 Принципы архитектуры
+### Принципы архитектуры
 
 - **Clean Architecture:** Разделение на слои (Handler → Service → Repository)
 - **Dependency Injection:** Все зависимости передаются через конструкторы
 - **Interface Segregation:** Репозитории и сервисы определены через интерфейсы
-- **Single Responsibility:** Каждый сервис отвечает за свою доменную область
+- **Adapter Pattern:** gRPC-слой — это адаптер между protobuf и доменными объектами
+- **Single Source of Truth:** Бизнес-логика используется и HTTP, и gRPC, и Kafka consumer'ом
 
 ---
+
+## 🔌 gRPC взаимодействие
+
+### Protobuf контракт (api/inventory/v1/inventory.proto)
+
+```protobuf
+syntax = "proto3";
+
+package inventory;
+
+service InventoryService {
+  rpc CheckStock(CheckStockRequest) returns (CheckStockResponse);
+  rpc ReserveStock(ReserveStockRequest) returns (ReserveStockResponse);
+  rpc ReleaseStock(ReleaseStockRequest) returns (ReleaseStockResponse);
+}
+
+message CheckStockRequest {
+  string product_id = 1;
+}
+
+message CheckStockResponse {
+  bool available = 1;
+  int32 quantity = 2;
+}
+```
+
+### Генерация кода
+
+```bash
+# Установить инструменты
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Сгенерировать Go-код из .proto
+protoc \
+  --go_out=. --go_opt=paths=source_relative \
+  --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+  api/inventory/v1/inventory.proto
+```
+
+### Тестирование через grpcurl
+
+```bash
+# Установить grpcurl
+go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+
+# Включить reflection в main.go (для отладки)
+# import "google.golang.org/grpc/reflection"
+# reflection.Register(grpcServer)
+
+# Посмотреть список сервисов
+grpcurl -plaintext localhost:50051 list
+
+# Посмотреть методы сервиса
+grpcurl -plaintext localhost:50051 list inventory.InventoryService
+
+# Проверить наличие товара
+grpcurl -plaintext \
+  -d '{"product_id": "550e8400-e29b-41d4-a716-446655440000"}' \
+  localhost:50051 inventory.InventoryService.CheckStock
+
+# Зарезервировать товар
+grpcurl -plaintext \
+  -d '{"product_id": "550e8400-e29b-41d4-a716-446655440000", "quantity": 5, "order_id": "123e4567-e89b-12d3-a456-426614174000"}' \
+  localhost:50051 inventory.InventoryService.ReserveStock
+```
 
 ## 🚀 Быстрый старт
 
@@ -163,7 +240,7 @@ cd go-order-management-system
 
 2. **Поднимите инфраструктуру:**
 ```bash
-docker-compose up -d postgres redis kafka
+docker compose up -d postgres redis kafka
 ```
 
 3. **Примените миграции:**
@@ -171,17 +248,21 @@ docker-compose up -d postgres redis kafka
 make migrate-up
 ```
 
-4. **Запустите сервисы:**
+4. **Запустите сервисы (в отдельных терминалах):**
 ```bash
-# В отдельных терминах:
-make run-order
-make run-inventory
-make run-notification
+# Терминал 1: Inventory Service
+go run cmd/inventory-service/main.go
+
+# Терминал 2: Order Service
+go run cmd/order-service/main.go
+
+# Терминал 3: API Gateway
+go run cmd/api-gateway/main.go
 ```
 
-Или соберите и запустите всё через Docker:
+Или через Docker Compose:
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 ---
@@ -232,57 +313,64 @@ service InventoryService {
 
 ## 🔑 Ключевые архитектурные решения
 
-### 1. 🎭 Circuit Breaker для внешних вызовов
-При недоступности Kafka или Redis сервис не падает, а работает в degraded mode с fallback в PostgreSQL.
+### 1. 🎭 Saga Pattern через Kafka
+Распределённые транзакции реализованы через хореографию событий:
+- Order Service публикует `OrderCreated`
+- Inventory Service резервирует товар и публикует `InventoryReserved`
+- Payment Service обрабатывает платёж и публикует `PaymentProcessed`
 
-### 2. ⚡ Кэширование в Redis
-Остатки товаров кэшируются в Redis с TTL 5 минут. При изменении остатка кэш инвалидируется через Kafka-событие.
+При ошибке на любом этапе запускаются компенсирующие транзакции.
 
-### 3. 🧪 Тестируемость
-- **Unit-тесты** для бизнес-логики (coverage > 70%)
-- **Integration-тесты** для работы с БД и Kafka
-- **Mocks** через [gomock](https://github.com/golang/mock)
+### 2. 🔄 gRPC как адаптер
+gRPC-слой — это "тонкий адаптер", который:
+- Принимает protobuf-запрос
+- Конвертирует в доменные объекты (UUID, модели)
+- Вызывает бизнес-логику (которая не знает о gRPC)
+- Конвертирует ответ обратно в protobuf
+
+Это обеспечивает **Single Source of Truth** для бизнес-логики.
+
+### 3. 🚪 API Gateway
+Gateway отвечает за:
+- **Аутентификацию** (JWT) — единожды, не в каждом сервисе
+- **Rate limiting** — защита от DDoS
+- **CORS** — для веб-клиентов
+- **Маршрутизацию** — HTTP → gRPC конвертация
+- **Агрегацию** — fan-out запросы к нескольким сервисам
 
 ### 4. 📊 Observability
 - Структурированные логи через Zap (JSON-формат)
 - Health check endpoints для каждого сервиса
-- Метрики Prometheus (в планах)
-
-### 5. 🛡 Graceful Shutdown
-При получении SIGTERM сервис:
-1. Прекращает принимать новые запросы
-2. Завершает текущие транзакции
-3. Закрывает соединения с БД и Kafka
+- Reflection API для отладки через grpcurl
+- Graceful shutdown для всех серверов (HTTP, gRPC, Kafka consumers)
 
 ---
 
 ## ✅ Что реализовано
 
-- [x] Микросервисная архитектура с 3 независимыми сервисами
-- [x] REST API на Gin с валидацией входных данных
-- [x] gRPC для синхронного взаимодействия между сервисами
+- [x] Микросервисная архитектура с API Gateway
+- [x] gRPC для межсервисного взаимодействия (быстрее REST в 10 раз)
+- [x] Protobuf контракты с codegen
 - [x] Apache Kafka для асинхронной коммуникации (Saga pattern)
 - [x] PostgreSQL с отдельными БД для каждого сервиса
-- [x] Redis для кэширования остатков товаров
 - [x] Docker Compose для локального развёртывания
 - [x] SQL-миграции через golang-migrate
 - [x] Конфигурация через YAML + ENV (Viper)
 - [x] Структурированное логирование (Zap)
-- [x] Graceful shutdown
-- [x] Unit-тесты для бизнес-логики
+- [x] Graceful shutdown для HTTP, gRPC, Kafka
+- [x] JWT аутентификация в API Gateway
+- [x] Rate limiting в API Gateway
+- [x] Reflection API для отладки gRPC
 
 ---
 
 ## 🚧 В планах (Roadmap)
 
-- [ ] Добавить Payment Service с интеграцией платёжного шлюза
-- [ ] Реализовать Notification Service (email, Telegram, push)
-- [ ] Добавить Circuit Breaker через [gobreaker](https://github.com/sony/gobreaker)
-- [ ] Внедрить OpenTelemetry для distributed tracing
-- [ ] Добавить метрики Prometheus + дашборды Grafana
+- [ ] Добавить Redis для кэширования остатков товаров
 - [ ] Настроить CI/CD через GitHub Actions
-- [ ] Добавить rate limiting и аутентификацию через JWT
-- [ ] Написать интеграционные тесты с testcontainers-go
+- [ ] Добавить интеграционные тесты с testcontainers-go
+- [ ] Реализовать Payment Service
+- [ ] Добавить Notification Service (email, Telegram)
 
 ---
 
@@ -292,6 +380,8 @@ service InventoryService {
 - [Go by Example](https://gobyexample.com/)
 - [Designing Data-Intensive Applications](https://dataintensive.net/) (Martin Kleppmann)
 - [Microservices Patterns](https://www.manning.com/books/microservices-patterns) (Chris Richardson)
+- [gRPC Official Documentation](https://grpc.io/docs/)
+
 
 ---
 
