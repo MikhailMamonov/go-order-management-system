@@ -3,22 +3,26 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
-
+	pb "github.com/MikhailMamonov/go-order-management-system/api/inventory/v1"
 	"github.com/MikhailMamonov/go-order-management-system/internal/inventory/consumers"
+	inventorygrpc "github.com/MikhailMamonov/go-order-management-system/internal/inventory/grpc"
 	"github.com/MikhailMamonov/go-order-management-system/internal/inventory/handlers"
 	"github.com/MikhailMamonov/go-order-management-system/internal/inventory/repository"
 	"github.com/MikhailMamonov/go-order-management-system/internal/inventory/services"
 	"github.com/MikhailMamonov/go-order-management-system/pkg/database"
 	"github.com/MikhailMamonov/go-order-management-system/pkg/kafka"
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -76,10 +80,27 @@ func main() {
 		Handler: router,
 	}
 
+	grpcServer := grpc.NewServer()
+	reflection.Register(grpcServer)
+	inventoryServer := inventorygrpc.NewInventoryServer(inventoryService)
+	pb.RegisterInventoryServiceServer(grpcServer, inventoryServer)
+
 	go func() {
 		sugar.Infof("Inventory service started on port : %s", viper.GetString("server.port"))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			sugar.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		sugar.Fatalf("Failed to listen: %v", err)
+	}
+
+	go func() {
+		sugar.Infof("gRPC server listening on :50051")
+		if err := grpcServer.Serve(lis); err != nil {
+			sugar.Fatalf("Failed to serve gRPC: %v", err)
 		}
 	}()
 
@@ -108,6 +129,9 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		sugar.Fatalf("Server forced to shutdown :%v", err)
 	}
+
+	sugar.Info("Stopping gRPC server gracefully...")
+	grpcServer.GracefulStop()
 
 	sugar.Info("Server exited gracefully")
 }
